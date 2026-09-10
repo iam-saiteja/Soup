@@ -43,13 +43,13 @@ def validate_and_stats(data: list[dict], expected_format: Optional[str] = None) 
 
     columns = list(data[0].keys())
 
-    lengths: list[int] = []
     empty_count = 0
     short_count = 0
     invalid_rows = 0
     seen_rows: set[tuple] = set()
     dup_count = 0
     total_length = 0
+    row_count = 0
     min_length = float("inf")
     max_length = 0
 
@@ -57,7 +57,8 @@ def validate_and_stats(data: list[dict], expected_format: Optional[str] = None) 
     required = FORMAT_SIGNATURES[expected_format] if check_format else set()
 
     for row in data:
-        # Detect duplicates via canonical hashable tuple
+        # Detect duplicates via canonical hashable tuple — fast path for flat rows,
+        # recursive fallback for rows containing nested dicts/lists.
         try:
             sig = tuple(sorted(row.items()))
             if sig in seen_rows:
@@ -75,7 +76,8 @@ def validate_and_stats(data: list[dict], expected_format: Optional[str] = None) 
         if check_format and not required.issubset(row.keys()):
             invalid_rows += 1
 
-        # Compute text length and count empty fields without intermediate list/string allocations
+        # Compute text length and count empty/None fields without intermediate
+        # list or joined-string allocations.
         parts_len = 0
         parts_count = 0
         for v in row.values():
@@ -87,8 +89,8 @@ def validate_and_stats(data: list[dict], expected_format: Optional[str] = None) 
                 parts_count += 1
 
         char_len = parts_len + (parts_count - 1 if parts_count > 0 else 0)
-        lengths.append(char_len)
         total_length += char_len
+        row_count += 1
         if char_len < min_length:
             min_length = char_len
         if char_len > max_length:
@@ -113,9 +115,9 @@ def validate_and_stats(data: list[dict], expected_format: Optional[str] = None) 
     return {
         "total": len(data),
         "columns": columns,
-        "avg_length": round(total_length / len(lengths)),
-        "min_length": int(min_length) if lengths else 0,
-        "max_length": int(max_length) if lengths else 0,
+        "avg_length": round(total_length / row_count),
+        "min_length": int(min_length) if row_count > 0 else 0,
+        "max_length": int(max_length) if row_count > 0 else 0,
         "empty_fields": empty_count,
         "duplicates": dup_count,
         "issues": issues,
